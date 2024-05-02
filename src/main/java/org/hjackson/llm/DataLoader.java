@@ -20,22 +20,18 @@ public final class DataLoader {
     // convenience variables
     public int num_batches;
     private boolean targetsPresent  = false;
-
     public DataLoader(String filename, final int B, final int T) throws Exception {
         this(B, T);
         this.B = B;
         this.T = T;
         targetsPresent = true;
-
         // open the input file for reading
         this.tokens_file = new RandomAccessFile(new File(filename), "r");
         this.file_size = this.tokens_file.length();
-
         if (this.file_size < (B * T + 1) * 4) {
             throw new Exception("Error: file size is too small for the batch size and sequence length");
         }
         this.current_position = 0; // start at the beginning
-
         // this.targets = this.batch + 1; // targets are shifted by one
         this.num_batches = (int) ((long) this.file_size / (B * T * 4));
     }
@@ -80,19 +76,15 @@ public final class DataLoader {
             throw new IOException("Invalid file operation.");
         }
     }
-
     public int getInputs(int i) {
         return batch[i];
     }
-
     public int getTargets(int i) {
         return batch[i + 1];
     }
-
     public boolean targetsPresent() {
         return targetsPresent;
     }
-
     private void cacheInputs() {
         System.arraycopy(batch, 0, cache, 0, batch.length);
     }

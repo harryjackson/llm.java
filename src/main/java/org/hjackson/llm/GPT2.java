@@ -1,16 +1,8 @@
 package org.hjackson.llm;
-
-import java.util.ArrayList;
-import java.util.List;
-import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.nio.ByteOrder;
@@ -21,7 +13,6 @@ import java.nio.file.StandardOpenOption;
 import java.util.stream.IntStream;
 
 public class GPT2 {
-    private static final Logger log = LoggerFactory.getLogger(GPT2.class);
     private final AtomicBoolean activationsMem = new AtomicBoolean(false);
     private ExecutorService executorService = Executors.newFixedThreadPool(1000);
     private final AtomicLong gpt2_forward_counter = new AtomicLong();
@@ -61,7 +52,7 @@ public class GPT2 {
                 StandardOpenOption.READ)) {
             this.file_size = fileChannel.size();
             this.memoryArena = Arena.ofAuto();
-            log.info("File Size: {}", file_size);
+            System.out.printf("File Size: %d\n", file_size);
             MemorySegment mappedFile = fileChannel.map(FileChannel.MapMode.READ_ONLY, 0, this.file_size, this.memoryArena);
             this.data = mappedFile;
             alloc_header(mappedFile, header);
@@ -69,8 +60,8 @@ public class GPT2 {
                 throw new Exception("Bad version in model file");
             }
             if (header.get(1) != 3) {
-                log.error("Bad version in model file");
-                log.error("---> HINT: try to re-run `python train_gpt2.py`");
+                System.out.printf("Bad version in model file\n");
+                System.out.printf("---> HINT: try to re-run `python train_gpt2.py`\n");
                 System.exit(1);
             }
             config = new GPT2Config(header);
@@ -92,15 +83,14 @@ public class GPT2 {
         this.config.channels = C = header.get(6);
         this.config.padded_vocab_size = Vp = header.get(7);
 
-        log.info("[GPT-2]\n");
-        log.info("max_seq_len: {}", maxT);
-        log.info("vocab_size: {}", V);
-        log.info("padded_vocab_size: {}", Vp);
-        log.info("num_layers: {}", L);
-        log.info("num_heads: {}", NH);
-        log.info("channels: {}", C);
-
-        log.info("num_parameters: {}", params.getNumParams());
+        System.out.printf("[GPT-2]\n");
+        System.out.printf("max_seq_len: %d\n", maxT);
+        System.out.printf("vocab_size: %d\n", V);
+        System.out.printf("padded_vocab_size: %d\n", Vp);
+        System.out.printf("num_layers: %d\n", L);
+        System.out.printf("num_heads: %d\n", NH);
+        System.out.printf("channels: %d\n", C);
+        System.out.printf("num_parameters: %d\n", params.getNumParams());
         this.num_parameters = params.getNumParams();
 
         // read in all the parameters from file
@@ -119,10 +109,10 @@ public class GPT2 {
         int endPos = headerSize;
         IntBuffer tmp = mappedFile.asSlice(startPos, endPos).asByteBuffer().order(ByteOrder.LITTLE_ENDIAN).asIntBuffer();
         //tmp is a view into the mapped file so we need to copy it
-        log.info("intBuffer size: {}", tmp.capacity());
+        System.out.printf("intBuffer size: %d\n", tmp.capacity());
         header.put(tmp);
-        log.info("header[0]={}", header.get(0));
-        log.info("header[1]={}", header.get(1));
+        System.out.printf("header[0]=%d\n", header.get(0));
+        System.out.printf("header[1]=%d\n", header.get(1));
     }
 
     void gpt2_zero_grad() {
@@ -452,13 +442,13 @@ public class GPT2 {
                 Assert.floatEquals(acts.mem[acts.getResidual3()], 0.0f);
             }
             num_activations = acts.getNumActivations();
-            log.info("num_activations: {}\n", num_activations);
+            System.out.printf("num_activations: %d\n", num_activations);
             // also create memory for caching inputs and targets
         } else {
             // validate B,T is consistent with how we've allocated the memory before
             // in principle we could get more clever here in the future, for now this is safest
             if (B != batch_size || T != seq_len) {
-                log.error("Model: B={} T={}, Desired: B={} T={}\n", batch_size, seq_len, B, T);
+                System.out.printf("Model: B={} T={}, Desired: B={} T={}\n", batch_size, seq_len, B, T);
                 System.exit(1);
             }
         }
@@ -536,7 +526,7 @@ public class GPT2 {
             }
             mean_loss /= B*T;
             this.mean_loss = mean_loss;
-            //log.info("f=={} mean_loss == {}", gpt2_forward_counter_layer.get(), mean_loss);
+            //System.out.printf("f=={} mean_loss == {}", gpt2_forward_counter_layer.get(), mean_loss);
             Assert.nonNan(this.mean_loss);
         } else {
             // if we don't have targets, we don't have a loss
@@ -546,7 +536,7 @@ public class GPT2 {
 
     public void gpt2_backward() {
         if (mean_loss == -1.0f) {
-            log.info("Error: must forward with targets before backward\n");
+            System.out.printf("Error: must forward with targets before backward\n");
             System.exit(1);
         }
         // convenience shortcuts

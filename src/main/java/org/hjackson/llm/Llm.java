@@ -1,12 +1,9 @@
 package org.hjackson.llm;
 import java.lang.management.ManagementFactory;
 import java.lang.management.MemoryMXBean;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 public class Llm {
-    private static final Logger log = LoggerFactory.getLogger(Llm.class);
     private static final long RNG_STATE = 1337;
     private static String tiny_stories_train = "data/TinyStories_train.bin";
     private static String tiny_stories_val = "data/TinyStories_val.bin";
@@ -15,29 +12,29 @@ public class Llm {
     public static void main(String[] args) throws Exception {
         MemoryMXBean memoryBean = ManagementFactory.getMemoryMXBean();
         long xmx = memoryBean.getHeapMemoryUsage().getMax();
-        log.info("Max Mem {}", xmx);
+        System.out.printf("Max Mem %d\n", xmx);
         Llm llm = new Llm();
         if(xmx < 8589934590L) {
             throw new IllegalStateException("-Xmx needs to be at least -Xmx8192m");
         }
         if(!llm.getClass().desiredAssertionStatus()) {
-            log.warn("Assertions are turned off, if editing the code I strongly recommend them to be on");
+            System.out.printf("Assertions are turned off, if editing the code I strongly recommend them to be on\n");
         }
-        log.info("Hello and welcome!");
+        System.out.printf("Hello and welcome!\n");
         GPT2 model = new GPT2("gpt2_124M.bin");
-        log.info("wte[0] == {}", model.params.mem[0]);
+        System.out.printf("wte[0] == %f\n", model.params.mem[0]);
         // build the DataLoaders from tokens files. for now use tiny_shakespeare if
         // available, else tiny_stories
         String train_tokens = Files.exists(Paths.get(tiny_shakespeare_train)) ? tiny_shakespeare_train : tiny_stories_train;
         String val_tokens = Files.exists(Paths.get(tiny_shakespeare_val)) ? tiny_shakespeare_val : tiny_stories_val;
-        log.info("Training with {} using values {}", train_tokens, val_tokens);
+        System.out.printf("Training with %s using values %s\n", train_tokens, val_tokens);
         final int B = 4; // batch size 4 (i.e. 4 independent token sequences will be trained on)
         final int T = 64; // sequence length 64 (i.e. each sequence is 64 tokens long). must be <= maxT,
         // which is 1024 for GPT-2
         DataLoader train_loader = new DataLoader(train_tokens, B, T);
-        log.info("train dataset num_batches: {}", train_loader.num_batches + "\n");
+        System.out.printf("train dataset num_batches: %s\n", train_loader.num_batches);
         DataLoader val_loader = new DataLoader(val_tokens, B, T);
-        log.info("val dataset num_batches: {}",  val_loader.num_batches + "\n");
+        System.out.printf("val dataset num_batches: %s\n",  val_loader.num_batches);
         final   int val_num_batches = 5;
         Tokenizer tokenizer = new Tokenizer("gpt2_tokenizer.bin");
         // some memory for generating samples from the model
@@ -47,7 +44,7 @@ public class Llm {
         final int genT = 64;
         // train
         long start, end;
-        for(int step = 0; step <= 80; step++) {
+        for(int step = 0; step <= 40; step++) {
             // once in a while estimate the validation loss
             if (step % 10 == 0) {
                 float val_loss = 0.0f;
@@ -58,7 +55,7 @@ public class Llm {
                     val_loss += model.mean_loss;
                 }
                 val_loss /= val_num_batches;
-                log.info("step {} val loss {}", step , val_loss);
+                System.out.printf("step %d val loss %f\n", step , val_loss);
             }
             // once in a while do model inference to print generated text
             if (step > 0 && step % 20 == 0) {
@@ -67,7 +64,7 @@ public class Llm {
                     gen_tokens[i] = GPT2.GPT2_EOT;
                 }
                 // now sample from the model autoregressively
-                log.info("generating:\n---\n");
+                System.out.printf("generating:\n---\n");
                 for (int t = 1; t < genT; t++) {
                     // note that inference is very wasteful here because for each token
                     // we re-calculate the forward pass for all of (B,T) positions from scratch
@@ -94,7 +91,7 @@ public class Llm {
                         System.out.printf(String.valueOf(next_token));
                     }
                 }
-                log.info("\n---\n");
+                System.out.printf("\n---\n");
             }
             // do a training step
             start = System.currentTimeMillis();
@@ -105,7 +102,7 @@ public class Llm {
             model.gpt2_update(1e-4f, 0.9f, 0.999f, 1e-8f, 0.0f, step+1);
             end = System.currentTimeMillis(); //clock_gettime(CLOCK_MONOTONIC, &end);
             long time_elapsed_s = end - start;
-            log.info("step {}: train loss {} (took {} ms)", step, model.mean_loss, time_elapsed_s);
+            System.out.printf("step %d: train loss %f (took %d ms)\n", step, model.mean_loss, time_elapsed_s);
         }
     }
 }

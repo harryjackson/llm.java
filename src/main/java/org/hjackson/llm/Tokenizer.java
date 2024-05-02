@@ -1,15 +1,10 @@
 package org.hjackson.llm;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import java.io.File;
 import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.nio.charset.StandardCharsets;
 
 public class Tokenizer {
-    private static final Logger log = LoggerFactory.getLogger(Tokenizer.class);
     private final int vocab_size;
     private final String[] token_table;
     public final int init_ok;
@@ -25,7 +20,7 @@ public class Tokenizer {
 
         if (!f.exists()) {
             // try to be more helpful as we just added this feature, erase later
-            log.error(
+            System.out.printf(
                     """
                                   ---
                                   WARNING: Failed to open the tokenizer file {}
@@ -40,12 +35,12 @@ public class Tokenizer {
             //file has integers in little endian, jvm is bigendian
             header[i] = Integer.reverseBytes(file.readInt());
         }
-        log.info("header[0] == {}", header[0]);
-        log.info("header[0] == {}", header[2]);
+        System.out.printf("header[0] == %d\n", header[0]);
+        System.out.printf("header[0] == %d\n", header[2]);
         assert (header[0] == 20240328);
         assert (header[1] == 2);
         vocab_size = header[2];
-        log.info("Vocab Size == {}", vocab_size);
+        System.out.printf("Vocab Size == %d\n", vocab_size);
         // read in all the tokens
         int length;
         token_table = new String[vocab_size];
@@ -60,7 +55,7 @@ public class Tokenizer {
             byte[] tmp = new byte[length];
             int t = file.read(tmp, 0, length);
             String tok = new String(tmp, StandardCharsets.UTF_8);
-            //log.info(tok);
+            //System.out.printf(tok);
             token_table[n++] = tok;
             pos = pos + 1 + length;
         }
@@ -75,7 +70,7 @@ public class Tokenizer {
         if (token_id < vocab_size) {
             return token_table[token_id];
         } else {
-            log.error("invalid token id {}!\n", token_id);
+            System.out.printf("invalid token id {}!\n", token_id);
             throw new IllegalStateException("Something bad happened, bad token_id: " + token_id);
         }
     }
