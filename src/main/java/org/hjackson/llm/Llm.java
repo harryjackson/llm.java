@@ -28,9 +28,9 @@ public class Llm {
         log.info("wte[0] == {}", model.params.mem[0]);
         // build the DataLoaders from tokens files. for now use tiny_shakespeare if
         // available, else tiny_stories
-        String train_tokens = Files.exists(Paths.get(tiny_shakespeare_train)) ? tiny_shakespeare_train
-                : tiny_stories_train;
+        String train_tokens = Files.exists(Paths.get(tiny_shakespeare_train)) ? tiny_shakespeare_train : tiny_stories_train;
         String val_tokens = Files.exists(Paths.get(tiny_shakespeare_val)) ? tiny_shakespeare_val : tiny_stories_val;
+        log.info("Training with {} using values {}", train_tokens, val_tokens);
         final int B = 4; // batch size 4 (i.e. 4 independent token sequences will be trained on)
         final int T = 64; // sequence length 64 (i.e. each sequence is 64 tokens long). must be <= maxT,
         // which is 1024 for GPT-2

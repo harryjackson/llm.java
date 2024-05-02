@@ -1,6 +1,5 @@
 package org.hjackson.llm;
 import java.util.*;
-
 public class ActivationTensors {
   public final float[] mem;
   private final int encoded;
@@ -50,9 +49,7 @@ public class ActivationTensors {
   private final int losses_size;
   private final int losses;
   private final int num_activations;
-
   private final Map<Integer, Float> tracking = new HashMap<>();
-
   public ActivationTensors(GPT2Config config, int B, int T) {
     int Vp = config.padded_vocab_size;
     int L = config.num_layers;
@@ -108,7 +105,6 @@ public class ActivationTensors {
     mem = new float[num_activations];
     tracking.put(2459138, 0.0f);
   }
-
   public boolean didChange(String loc) {
     boolean res = false;
     for(Integer k : tracking.keySet()) {
@@ -128,21 +124,14 @@ public class ActivationTensors {
   public void zeroFill() {
     Arrays.fill(mem, 0.0f);
   }
-  public void setLosses(int i, float dlossMean) {
-    mem[losses + i] = dlossMean;
-  }
-  public int getLogits() {
-    return logits;
-  }
+  public int getLogits() {return logits;}
   public int getLosses() {
     return losses;
   }
   public int getProbs() {
     return probs;
   }
-  public int getLnf() {
-    return lnf;
-  }
+  public int getLnf() {return lnf; }
   public int getResidual3() {
     return residual3;
   }
@@ -155,9 +144,7 @@ public class ActivationTensors {
   public int getEncoded() {
     return encoded;
   }
-  public int getLn1() {
-    return ln1;
-  }
+  public int getLn1() {return ln1;}
   public int getLn1Mean() {
     return ln1_mean;
   }

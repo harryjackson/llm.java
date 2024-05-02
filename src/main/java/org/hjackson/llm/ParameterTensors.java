@@ -40,9 +40,7 @@ public class ParameterTensors {
     private final int num_params;
     public final float[] mem;
     private boolean ok = false;
-
     private final Map<Integer, Float> tracking = new HashMap<>();
-
     public ParameterTensors(MemorySegment segment, GPT2Config config) {
         this(config);
         int pos = 1024;//header
@@ -94,13 +92,12 @@ public class ParameterTensors {
         lnfb = lnfw + lnfw_size;
         num_params = lnfb + lnfb_size;
         mem = new float[num_params];
-
         tracking.put(58904066, 0.0f);
     }
     public boolean ok() {
         return ok;
     }
-    public boolean didChange(String s) {
+    public boolean didChange(String s) {//debugging mem access
         boolean res = false;
         for(Integer k : tracking.keySet()) {
             float curr = mem[k];
@@ -155,9 +152,7 @@ public class ParameterTensors {
     public int getNumParams() {
         return num_params;
     }
-    public void zeroFill() {
-      Arrays.fill(mem, 0);
-    }
+    public void zeroFill() { Arrays.fill(mem, 0); }
     public int getLnfw() {
         return lnfw;
     }
@@ -194,9 +189,7 @@ public class ParameterTensors {
     public int getLn2b() {
         return ln2b;
     }
-    public int getFcb() {
-        return fcb;
-    }
+    public int getFcb() { return fcb;}
     public int getFcprojb() {
         return fcprojb;
     }

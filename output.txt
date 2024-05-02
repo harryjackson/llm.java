@@ -1,0 +1,81 @@
+The following output was obtained from version 3 of gpt2_124M.bin. Float
+
+step 0 val loss 5.3254156
+step 0: train loss 5.3560853 (took 8907 ms)
+step 1: train loss 4.30064 (took 9475 ms)
+step 2: train loss 4.6230845 (took 10811 ms)
+step 3: train loss 4.599361 (took 8147 ms)
+step 4: train loss 4.616666 (took 9928 ms)
+step 5: train loss 4.2314296 (took 11497 ms)
+step 6: train loss 3.7531614 (took 11620 ms)
+step 7: train loss 3.6504583 (took 10590 ms)
+step 8: train loss 4.182245 (took 11484 ms)
+step 9: train loss 4.1995807 (took 10486 ms)
+num batches
+step 10 val loss 4.323764
+step 10: train loss 4.2886624 (took 12550 ms)
+step 11: train loss 3.5606437 (took 13157 ms)
+step 12: train loss 3.731437 (took 12310 ms)
+step 13: train loss 4.1585093 (took 11972 ms)
+step 14: train loss 3.8856308 (took 12406 ms)
+step 15: train loss 3.7664862 (took 10852 ms)
+step 16: train loss 4.1440067 (took 11022 ms)
+step 17: train loss 3.9611669 (took 11091 ms)
+step 18: train loss 3.7960443 (took 10977 ms)
+step 19: train loss 3.3710425 (took 11474 ms)
+num batches
+step 20 val loss 4.1878552
+generating:
+---
+
+I have been so much more flinty
+Than he was
+Than he was the most flinty
+Than he was the most flinty.
+
+<|endoftext|>SICINIUS:
+Than for he's not an flintt;
+Than for he's not an
+---
+
+step 20: train loss 3.8827896 (took 7953 ms)
+step 21: train loss 4.1999807 (took 7925 ms)
+step 22: train loss 4.4284263 (took 7972 ms)
+step 23: train loss 3.685925 (took 8017 ms)
+step 24: train loss 3.6432953 (took 8169 ms)
+step 25: train loss 3.7296968 (took 8294 ms)
+step 26: train loss 3.550646 (took 8106 ms)
+step 27: train loss 3.3386292 (took 7976 ms)
+step 28: train loss 4.3420234 (took 7984 ms)
+step 29: train loss 3.8147247 (took 8056 ms)
+num batches
+step 30 val loss 4.0227017
+step 30: train loss 4.0324163 (took 8017 ms)
+step 31: train loss 4.118074 (took 8037 ms)
+step 32: train loss 3.577008 (took 8032 ms)
+step 33: train loss 4.3697977 (took 8188 ms)
+step 34: train loss 4.524116 (took 8022 ms)
+step 35: train loss 4.4388146 (took 8040 ms)
+step 36: train loss 4.101099 (took 8160 ms)
+step 37: train loss 3.7409782 (took 8046 ms)
+step 38: train loss 4.6187425 (took 8052 ms)
+step 39: train loss 3.9722612 (took 8081 ms)
+num batches
+step 40 val loss 4.0173483
+generating:
+---
+
+Mullen:
+The best of this dore.
+The last of thine.
+The good of this dore.
+The good of this dore.
+The good of this dore.
+The good of this dore.
+The good of this dore.
+The good of
+---
+
+step 40: train loss 4.3784404 (took 8012 ms)
+
+Process finished with exit code 0

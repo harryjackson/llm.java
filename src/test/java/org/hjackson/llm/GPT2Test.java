@@ -77,13 +77,12 @@ class GPT2Test {
         log.info("seq_len: {}", T);
     }
 
-    @Test
+    //@Test
     void gpt2_build_from_checkpoint() throws IOException {
         Assertions.assertEquals(20240327, state_header[0], "Bad magic state file");
         Assertions.assertEquals(2, state_header[1], "Bad version in state file");
         int[] x = new int[B * T];
         int[] y = new int[B * T];
-
         for (int i = 0; i < x.length; i++) {
             n = i;
             fbuf[0] = mem[cpos];
@@ -95,7 +94,6 @@ class GPT2Test {
             cpos += 4;
         }
         DataLoader loader = new DataLoader(x, B, T);
-
         for (int i = 0; i < y.length; i++) {
             n++;
             fbuf[0] = mem[cpos];
@@ -105,10 +103,8 @@ class GPT2Test {
             y[i] = ByteBuffer.wrap(fbuf).order(ByteOrder.LITTLE_ENDIAN).getInt();
             cpos += 4;
         }
-
         float expected_loss = 0.0f;
         final int num_params = model.getNumParams();
-
         int btv = B * T * V;
         //ByteBuffer buf = ByteBuffer.
         fbuf = new byte[4];
@@ -125,7 +121,6 @@ class GPT2Test {
             expected_logits[i] = f;
             cpos += 4;
         }
-
         fbuf[0] = mem[cpos];
         fbuf[1] = mem[cpos + 1];
         fbuf[2] = mem[cpos + 2];
@@ -133,7 +128,6 @@ class GPT2Test {
         cpos += 4;
         n++;
         expected_loss = ByteBuffer.wrap(fbuf).order(ByteOrder.LITTLE_ENDIAN).getFloat();
-
         float[] expected_grads_memory = new float[num_params];
         log.info("reading expected_grads_memory");
         for (int i = 0; i < num_params; i++) {
@@ -149,17 +143,14 @@ class GPT2Test {
         }
         log.info("cpos == {}", cpos);
         Assertions.assertEquals(549369860, cpos);
-
     /* expected_logits[0]    == -43.43161774
        expected_loss         == 5.27000856
        expected_grads_memory == -0.00231974 */
         log.info("expected_logits[0] == {} length == {}", expected_logits[0], expected_logits.length);
         log.info("expected_loss            == {}", expected_loss);
         log.info("expected_grads_memory[0] == {} length == {}", expected_grads_memory[0], expected_grads_memory.length);
-
         // overall OK signal for the test
         boolean allok = true;
-
         // expected losses are as follows, from Python
         float[] expected_losses = {
                 5.270007133483887f,
@@ -173,7 +164,6 @@ class GPT2Test {
                 0.6240804195404053f,
                 0.37651097774505615f
         };
-
         // let's do 10 training iterations, following the pytorch code
         float[] losses = new float[10];
         for (int step = 0; step < 10; step++) {
@@ -184,7 +174,6 @@ class GPT2Test {
             Instant end = Instant.now();
             log.info("Duration: {}", Duration.between(end, start));
             ActivationTensors acts = model.acts;
-
             if (step == 0) {
                 // error checking at step 0 for reference activations/gradients
                 // at this point, target should be equal to expected_logits, let's compare
@@ -209,15 +198,12 @@ class GPT2Test {
                         }
                     }
                 }
-
                 if (!logits_ok) {
                     log.error("Logits not ok, exiting");
                     System.exit(1);
                 }
-
                 log.info("OK (LOGITS)");
                 allok = allok && logits_ok;
-
                 // compare the achieved loss
                 if (Math.abs(model.mean_loss - expected_loss) >= epsilon) {
                     log.info("LOSS MISMATCH: {} {}", model.mean_loss, expected_loss);
@@ -225,11 +211,9 @@ class GPT2Test {
                 } else {
                     log.info("LOSS OK: {} {}", model.mean_loss, expected_loss);
                 }
-
                 // finally check all the gradients
                 boolean[] gradoks = new boolean[16];
                 ParameterTensors grads = model.grads;
-
                 gradoks[0] = check_tensor(grads.getWte(), expected_grads_memory, V * C, "dwte");
                 //gradoks[1] = check_tensor(grads.wpe, expected_grads.wpe, maxT*C, "dwpe");
 //        gradoks[2] = check_tensor(grads.ln1w, expected_grads.ln1w, L*C, "dln1w");

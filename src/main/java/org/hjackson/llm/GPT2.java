@@ -21,21 +21,13 @@ import java.nio.file.StandardOpenOption;
 import java.util.stream.IntStream;
 
 public class GPT2 {
-
     private static final Logger log = LoggerFactory.getLogger(GPT2.class);
-    final float EPSILON = 1e-5F;
     private final AtomicBoolean activationsMem = new AtomicBoolean(false);
     private ExecutorService executorService = Executors.newFixedThreadPool(1000);
-    private final List<Callable<Object>> ignoreAll = new ArrayList<>(128);
-
     private final AtomicLong gpt2_forward_counter = new AtomicLong();
     public final AtomicLong gpt2_forward_counter_layer = new AtomicLong();
     private final AtomicLong gpt2_backward_counter_layer = new AtomicLong();
-
-    private final AtomicLong matmul_forward_counter = new AtomicLong();
-
     public static final int GPT2_EOT = 50256;
-
     private static float GELU_SCALING_FACTOR = (float) Math.sqrt(2.0f / Math.PI);
     public final GPT2Config config;
     // the weights (parameters) of the model, and their sizes
@@ -45,19 +37,16 @@ public class GPT2 {
     public ParameterTensors grads;
     private float grads_memory;
     // buffers for the AdamW optimizer
-    private float[] m_memory;
-    private float[] v_memory;
+    private double[] m_memory;
+    private double[] v_memory;
     // the activations of the model, and their sizes
     public ActivationTensors acts;
     private int num_activations;
     // gradients of the activations
     private ActivationTensors grads_acts;
-    private float grads_acts_memory;
     // other run state configuration
     private int batch_size; // the batch size (B) of current forward pass
     private int seq_len; // the sequence length (T) of current forward pass
-    private int[] cacheInputs; // the input tokens for the current forward pass
-    private int[] cacheTargets; // the target tokens for the current forward pass
     private DataLoader loader;
     //private DataLoader train_loader;
     public float mean_loss = 0.0f; // after a forward pass with targets, will be populated with the mean loss
@@ -65,9 +54,7 @@ public class GPT2 {
     private final Arena memoryArena;
     private final MemorySegment data;
     private static final int headerSize = 256 * 4;// bytes
-    private int model_header[] = new int[headerSize];
-    private IntBuffer header = IntBuffer.allocate(256);
-    private MemorySegment mappedFile;
+    private final IntBuffer header = IntBuffer.allocate(256);
 
     public GPT2(String checkpoint_path) throws Exception {
         try (FileChannel fileChannel = FileChannel.open(Paths.get(checkpoint_path),
@@ -75,7 +62,7 @@ public class GPT2 {
             this.file_size = fileChannel.size();
             this.memoryArena = Arena.ofAuto();
             log.info("File Size: {}", file_size);
-            mappedFile = fileChannel.map(FileChannel.MapMode.READ_ONLY, 0, this.file_size, this.memoryArena);
+            MemorySegment mappedFile = fileChannel.map(FileChannel.MapMode.READ_ONLY, 0, this.file_size, this.memoryArena);
             this.data = mappedFile;
             alloc_header(mappedFile, header);
             if (header.get(0) != 20240326) {
@@ -118,13 +105,10 @@ public class GPT2 {
 
         // read in all the parameters from file
         // this.params_memory = malloc_and_point_parameters(this.params, 256, is);
-
         // other inits
-        //this.acts_memory = 0;
         this.grads_memory = 0;
         this.m_memory = null;
         this.v_memory = null;
-        this.grads_acts_memory = 0;
         this.batch_size = 0;
         this.seq_len = 0;
         this.mean_loss = -1.0f; // -1.0f will designate no loss
@@ -133,10 +117,7 @@ public class GPT2 {
     public void alloc_header(MemorySegment mappedFile, IntBuffer header) throws Exception {
         int startPos = 0;
         int endPos = headerSize;
-
-        IntBuffer tmp = mappedFile.asSlice(startPos, endPos).asByteBuffer()
-                .order(ByteOrder.LITTLE_ENDIAN)
-                .asIntBuffer();
+        IntBuffer tmp = mappedFile.asSlice(startPos, endPos).asByteBuffer().order(ByteOrder.LITTLE_ENDIAN).asIntBuffer();
         //tmp is a view into the mapped file so we need to copy it
         log.info("intBuffer size: {}", tmp.capacity());
         header.put(tmp);
@@ -161,7 +142,6 @@ public class GPT2 {
                 int dwte_ix = dwte + ix * C;//grads
                 int dwpe_t = dwpe + t * C;//grads
                 for (int i = 0; i < C; i++) {
-                    //float d = dout_bt[i];
                     float d = grads_acts.mem[dout_bt + i];
                     grads.mem[dwte_ix + i] += d;
                     grads.mem[dwpe_t + i] += d;
@@ -174,26 +154,23 @@ public class GPT2 {
         // reference: https://pytorch.org/docs/stable/generated/torch.optim.AdamW.html
         // lazily allocate the memory for m_memory and v_memory
         if (m_memory == null) {
-            m_memory = new float[(int) num_parameters];
-            v_memory = new float[(int) num_parameters];
+            m_memory = new double[(int) num_parameters];
+            v_memory = new double[(int) num_parameters];
         }
-
         for (int i = 0; i < num_parameters; i++) {
-            float param = params.mem[i];
-            float grad = grads.mem[i];
-
+            double param = params.mem[i];
+            double grad = grads.mem[i];
             // update the first moment (momentum)
-            float m = beta1 * m_memory[i] + (1.0f - beta1) * grad;
+            double m = beta1 * m_memory[i] + (1.0 - beta1) * grad;
             // update the second moment (RMSprop)
-            float v = beta2 * v_memory[i] + (1.0f - beta2) * grad * grad;
+            double v = beta2 * v_memory[i] + (1.0 - beta2) * grad * grad;
             // bias-correct both moments
-            float m_hat = (float) (m / (1.0f - Math.pow(beta1, t)));
-            float v_hat = (float) (v / (1.0f - Math.pow(beta2, t)));
+            double m_hat =  (m / (1.0 - Math.pow(beta1, t)));
+            double v_hat =  (v / (1.0 - Math.pow(beta2, t)));
             // update
             m_memory[i] = m;
             v_memory[i] = v;
             params.mem[i] -= (float) (learning_rate * (m_hat / (Math.sqrt(v_hat) + eps) + weight_decay * param));
-            ;
         }
     }
 
@@ -225,13 +202,8 @@ public class GPT2 {
                             // so now we have:
                             grads_acts.mem[datt_bth + t2] += acts.mem[value_t2 + i] * grads_acts.mem[dout_bth + i];
                             grads_acts.mem[dvalue_t2 + i] += acts.mem[att_bth + t2] * grads_acts.mem[dout_bth + i];
-//                            if(b == 2 && t == 2 && h == 2 && t2 == 2 && i == 2) {
-//                                System.out.printf("attention_backward b==%d t==%d h==%d i==%d datt_bth_t2==%f dvalue_t2_i==%f\n",
-//                                        b, t, h, i, grads_acts.mem[datt_bth + t2], grads_acts.mem[dvalue_t2 + i]);
-//                            }
                         }
                     }
-
                     // backward pass 2 & 3, the softmax
                     // note that softmax (like e.g. tanh) doesn't need the input (preatt) to backward
                     for (int t2 = 0; t2 <= t; t2++) {
@@ -239,10 +211,6 @@ public class GPT2 {
                             float indicator = t2 == t3 ? 1.0f : 0.0f;
                             float local_derivative = acts.mem[att_bth + t2] * (indicator - acts.mem[att_bth + t3]);
                             grads_acts.mem[dpreatt_bth + t3] += local_derivative * grads_acts.mem[datt_bth + t2];
-//                            if(b == 2 && t == 2 && h == 2 && t2 == 2 && t3 == 2) {
-//                                System.out.printf("attention_backward b==%d t==%d h==%d t3==%d dpreatt_bth_t3==%f att_bth_t2==%f att_bth_t3==%f datt_bth_t2==%f ???==%f\n",
-//                                        b, t, h, t3, grads_acts.mem[dpreatt_bth + t3], acts.mem[att_bth + t2], acts.mem[att_bth + t3], acts.mem[datt_bth + t2], grads_acts.mem[datt_bth + t2]);
-//                            }
                         }
                     }
                     // backward pass 1, the query @ key matmul
@@ -253,10 +221,6 @@ public class GPT2 {
                             // in the forward pass this was:
                             grads_acts.mem[dquery_t + i] += acts.mem[key_t2 + i] * grads_acts.mem[dpreatt_bth + t2] * scale;
                             grads_acts.mem[dkey_t2 + i] += acts.mem[query_t + i] * grads_acts.mem[dpreatt_bth + t2] * scale;
-//                            if(b == 2 && t == 2 && h == 2 && t2 == 2 && i == 2) {
-//                                System.out.printf("attention_backward b==%d t==%d h==%d i==%d dquery_t_i==%f dkey_t2_i==%f\n",
-//                                        b, t, h, i, grads_acts.mem[dquery_t + i], grads_acts.mem[dkey_t2 + i]);
-//                            }
                         }
                     }
                 }
@@ -266,16 +230,14 @@ public class GPT2 {
     //                          grads_acts, acts,  grads_acts
     private void gelu_backward(int dinp, int inp, int dout, int N) {
         for (int i = 0; i < N; i++) {
-            float x = acts.mem[inp + i];
-            float cube = 0.044715f * x * x * x;
-            float tanh_arg = GELU_SCALING_FACTOR * (x + cube);
-            float tanh_out = (float) Math.tanh(tanh_arg);
-            float coshf_out = (float) Math.cosh(tanh_arg);
-            float sech_out = 1.0f / (coshf_out * coshf_out);
-            float local_grad =
-                    0.5f * (1.0f + tanh_out) + x * 0.5f * sech_out
-                            * GELU_SCALING_FACTOR * (1.0f + 3.0f * 0.044715f * x * x);
-            grads_acts.mem[dinp + i] += local_grad * grads_acts.mem[dout + i];
+            double x = acts.mem[inp + i];
+            double cube = 0.044715 * x * x * x;
+            double tanh_arg = GELU_SCALING_FACTOR * (x + cube);
+            double tanh_out = (float) Math.tanh(tanh_arg);
+            double coshf_out = (float) Math.cosh(tanh_arg);
+            double sech_out = 1.0 / (coshf_out * coshf_out);
+            double local_grad = 0.5 * (1.0 + tanh_out) + x * 0.5 * sech_out * GELU_SCALING_FACTOR * (1.0 + 3.0 * 0.044715 * x * x);
+            grads_acts.mem[dinp + i] += (float) (local_grad * grads_acts.mem[dout + i]);
         }
     }
                           //       grads_acts, grads,     grads,    grads_acts, acts    , params   , acts    , acts
@@ -301,7 +263,6 @@ public class GPT2 {
                 }
                 dnorm_mean = dnorm_mean / C;
                 dnorm_norm_mean = dnorm_norm_mean / C;
-
                 // now iterate again and accumulate all the gradients
                 for (int i = 0; i < C; i++) {
                     float norm_bti = (acts.mem[inp_bt + i] - mean_bt) * rstd_bt;
@@ -316,15 +277,10 @@ public class GPT2 {
                     dval -= norm_bti * dnorm_norm_mean; // term 3
                     dval *= rstd_bt; // final scale
                     grads_acts.mem[dinp_bt + i] += dval;
-//                    if(b == 2 && t == 2 && i == 2) {
-//                        System.out.printf("layernorm_backward b==%d t==%d i==%d dval==%f dout_bt==%f inp_bt==%f mean_bt==%f rstd_bt==%f\n",
-//                                b, t, i, dval, grads_acts.mem[dout_bt], acts.mem[inp_bt], mean_bt, rstd_bt );
-//                    }
                 }
             }
         }
     }
-
     //                        grads_acts , grads   ,    grads    , grads_acts, acts,   params
     //                        grads_acts , grads     ,  MIN_VALUE, grads_acts, acts,   params
          //matmul_backward(grads_acts.getLnf, grads.getWte, IMIN_VALUE, grads_acts.getLogits, acts.getLnf(), params.wte, B, T, C, Vp);
@@ -348,10 +304,6 @@ public class GPT2 {
                         float d = grads_acts.mem[dout_bt + o];
                         for (int i = 0; i < C; i++) {
                             grads_acts.mem[dinp_bt + i] += params.mem[wrow + i] * d;
-//                            if(bt == 0 && b == 2 && t == 2 && i == 2) {
-//                                System.out.printf("matmul_backward b==%d t==%d i==%d d==%f wrow==%f\n",
-//                                        b, t, i, d, params.mem[wrow + i]);
-//                            }
                         }
                     }
                 });
@@ -371,10 +323,6 @@ public class GPT2 {
                             }
                             for (int i = 0; i < C; i++) {
                                 grads.mem[dwrow + i] += acts.mem[inp_bt + i] * d;
-//                                if(o == 2 && b == 2 && t == 2 && i == 2) {
-//                                    System.out.printf("matmul_backward b==%d t==%d i==%d d==%f inp_bt==%f\n",
-//                                            b, t, i, d, acts.mem[inp_bt + i]);
-//                                }
                             }
                         }
                     }
@@ -383,7 +331,6 @@ public class GPT2 {
 
     //                        grads_acts , grads   ,    grads    , grads_acts, acts,   params
     //                        grads_acts , grads     ,  MIN_VALUE, grads_acts, acts,   params
-    //matmul_backward(grads_acts.getLnf, grads.getWte, IMIN_VALUE, grads_acts.getLogits, acts.getLnf(), params.wte, B, T, C, Vp);
     private void matmul_backward2(int dinp, int dweight, int dbias, int dout, int inp, int weight,
                                       int B, int T, int C, int OC, int id) {
         // most of the running time is spent here and in matmul_forward
@@ -399,17 +346,7 @@ public class GPT2 {
                     float d = grads_acts.mem[dout_bt + o];
 
                     for (int i = 0; i < C; i++) {
-//                        if(b == 2 && t == 2 && o == 2 && i == 2) {
-//                            float tmp = params.mem[wrow + i] * d;
-//                            // params.mem[wrow + i] == correct
-//                            // d == incorrect
-//                            System.out.printf("%d matmul_backward b==%d t==%d i==%d d==%f wrow==%f tmp==%f dinp_bt_i=%f dinp_cell=%d\n",
-//                                    id, b, t, i, d, params.mem[wrow + i], tmp,  grads_acts.mem[dinp_bt + i], dinp_bt + i);
-//                            grads.didChange(b + "-" + t + "-" + o + "-" + i);
-//                            grads_acts.didChange(b + "-" + t + "-" + o + "-" + i);
-//                        }
                         grads_acts.mem[dinp_bt + i] += params.mem[wrow + i] * d;
-
                     }
                 }
             }
@@ -605,10 +542,6 @@ public class GPT2 {
             // if we don't have targets, we don't have a loss
             this.mean_loss = -1.0f;
         }
-//        for(int l = 0; l < L; l++) {
-//            int res = acts.getResidual3() + l * B * T * C;
-//            System.out.printf("l==%d f==%d b==%d residual == %1.7f @%d\n", l, gpt2_forward_counter_layer.get(), gpt2_backward_counter_layer.get(), acts.mem[res], res);
-//        }
     }
 
     public void gpt2_backward() {
@@ -644,32 +577,18 @@ public class GPT2 {
         matmul_backward(grads_acts.getLnf(), grads.getWte(), Integer.MIN_VALUE, grads_acts.getLogits(), acts.getLnf(), params.wte, B, T, C, Vp, 0);
         int residual = acts.getResidual3() + (L - 1) * B * T * C;// last layer's residual
         int dresidual = grads_acts.getResidual3() + (L - 1) * B * T * C;// write to last layer's residual
-
-//        for (int l = L-1; l >= 0; l--) {
-//            dl_residual3 = grads_acts.getResidual3() + l * B * T * C;
-//            System.out.printf("bef b==%d f==%d dl_residual3 == %f\n",
-//                    gpt2_backward_counter_layer.get(), gpt2_forward_counter_layer.get(), grads_acts.mem[dl_residual3]);
-//        }
-
         layernorm_backward(dresidual, grads.getLnfw(), grads.getLnfb(), grads_acts.getLnf(), residual, params.getLnfw(), acts.getLnfMean(), acts.getLnfRstd(), B, T, C);
-//        for (int l = L-1; l >= 0; l--) {
-//            dl_residual3 = grads_acts.getResidual3() + l * B * T * C;
-//            System.out.printf("aft b==%d f==%d dl_residual3 == %f\n",
-//                    gpt2_backward_counter_layer.get(), gpt2_forward_counter_layer.get(), grads_acts.mem[dl_residual3]);
-//        }
         for (int l = L-1; l >= 0; l--) {
             long layerCount = gpt2_backward_counter_layer.incrementAndGet();
             float residualTest,  dresidualTest;
             if (l == 0) {
                 residual = acts.getEncoded();
                 dresidual = grads_acts.getEncoded();
-                residualTest = acts.mem[residual];
-                dresidualTest = grads_acts.mem[dresidual];
+                //residualTest = acts.mem[residual];dresidualTest = grads_acts.mem[dresidual];
             } else {
                 residual = acts.getResidual3() + (l - 1) * B * T * C;
                 dresidual = grads_acts.getResidual3() + (l - 1) * B * T * C;//previous residual -> l-1
-                residualTest = acts.mem[residual];
-                dresidualTest = grads_acts.mem[dresidual];
+                //residualTest = acts.mem[residual];dresidualTest = grads_acts.mem[dresidual];
             }
             //System.out.printf("b==%d f==%d residual == %f dlresidual == %f\n", layerCount, gpt2_forward_counter_layer.get(), residualTest, dresidualTest);
             // get the pointers of the weights for this layer
@@ -724,52 +643,6 @@ public class GPT2 {
                 System.out.printf("dl_residual == %f", grads_acts.mem[dl_residual3]);
                 throw new IllegalStateException("This should never happen");
             }
-//            System.out.printf("l_ln1w == %1.8f\n", params.mem[l_ln1w]);
-//            System.out.printf("l_qkvw == %1.8f\n", params.mem[l_qkvw]);
-//            System.out.printf("l_attprojw == %1.8f\n", params.mem[l_attprojw]);
-//            System.out.printf("l_ln2w == %1.8f\n", params.mem[l_ln2w]);
-//            System.out.printf("l_fcw == %1.8f\n", params.mem[l_fcw]);
-//            System.out.printf("l_fcprojw == %1.8f\n", params.mem[l_fcprojw]);
-//
-//            System.out.printf("dl_ln1w == %1.8f\n", grads.mem[dl_ln1w]);
-//            System.out.printf("dl_ln1b == %1.8f\n", grads.mem[dl_ln1b]);
-//            System.out.printf("dl_qkvw == %1.8f\n", grads.mem[dl_qkvw]);
-//            System.out.printf("dl_qkvb == %1.8f\n", grads.mem[dl_qkvb]);
-//            System.out.printf("dl_attprojw == %1.8f\n", grads.mem[dl_attprojw]);
-//            System.out.printf("dl_attprojb == %1.8f\n", grads.mem[dl_attprojb]);
-//            System.out.printf("dl_ln2w == %1.8f\n", grads.mem[dl_ln2w]);
-//            System.out.printf("dl_ln2b == %1.8f\n", grads.mem[dl_ln2b]);
-//            System.out.printf("dl_fcw == %1.8f\n", grads.mem[dl_fcw]);
-//            System.out.printf("dl_fcb == %1.8f\n", grads.mem[dl_fcb]);
-//            System.out.printf("dl_fcprojw == %1.8f\n", grads.mem[dl_fcprojw]);
-//            System.out.printf("dl_fcprojb == %1.8f\n", grads.mem[dl_fcprojb]);
-//
-//            System.out.printf("l_ln1 == %1.8f\n", acts.mem[l_ln1]);
-//            System.out.printf("l_ln1_mean == %1.8f\n", acts.mem[l_ln1_mean]);
-//            System.out.printf("l_ln1_rstd == %1.8f\n", acts.mem[l_ln1_rstd]);
-//            System.out.printf("l_qkv == %1.8f\n", acts.mem[l_qkv]);
-//            System.out.printf("l_atty == %1.8f\n", acts.mem[l_atty]);
-//            System.out.printf("l_att == %1.8f\n", acts.mem[l_att]);
-//            System.out.printf("l_residual2 == %1.8f\n", acts.mem[l_residual2]);
-//            System.out.printf("l_ln2 == %1.8f\n", acts.mem[l_ln2]);
-//            System.out.printf("l_ln2_mean == %1.8f\n", acts.mem[l_ln2_mean]);
-//            System.out.printf("l_ln2_rstd == %1.8f\n", acts.mem[l_ln2_rstd]);
-//            System.out.printf("l_fch == %1.8f\n", acts.mem[l_fch]);
-//            System.out.printf("l_fch_gelu == %1.8f\n", acts.mem[l_fch_gelu]);
-//
-//            System.out.printf("dl_ln1 == %1.8f\n", grads_acts.mem[dl_ln1]);
-//            System.out.printf("dl_qkv == %1.8f\n", grads_acts.mem[dl_qkv]);
-//            System.out.printf("dl_atty == %1.8f\n", grads_acts.mem[dl_atty]);
-//            System.out.printf("dl_preatt == %1.8f\n", grads_acts.mem[dl_preatt]);
-//            System.out.printf("dl_att == %1.8f\n", grads_acts.mem[dl_att]);
-//            System.out.printf("dl_attproj == %1.8f\n", grads_acts.mem[dl_attproj]);
-//            System.out.printf("dl_residual2 == %1.8f\n", grads_acts.mem[dl_residual2]);
-//            System.out.printf("dl_ln2 == %1.8f\n", grads_acts.mem[dl_ln2]);
-//            System.out.printf("dl_fch == %1.8f\n", grads_acts.mem[dl_fch]);
-//            System.out.printf("dl_fch_gelu == %1.8f\n", grads_acts.mem[dl_fch_gelu]);
-//            System.out.printf("dl_fcproj == %1.8f\n", grads_acts.mem[dl_fcproj]);
-//            System.out.printf("dl_residual3 == %1.8f\n", grads_acts.mem[dl_residual3]);
-
             // backprop this layer
             residual_backward(dl_residual2, dl_fcproj, dl_residual3, B * T * C);// checked 1
             matmul_backward(dl_fch_gelu, dl_fcprojw, dl_fcprojb, dl_fcproj, l_fch_gelu, l_fcprojw, B, T, 4 * C, C, 1);//checked
@@ -846,9 +719,6 @@ public class GPT2 {
     private void residual_forward(int out, int inp1, int inp2, int N) {
         for (int i = 0; i < N; i++) {
             acts.mem[out + i] = acts.mem[inp1 + i] + acts.mem[inp2 + i];
-//            if(i == 0 || i == 196607) {
-//                System.out.printf("residual_forward %f %f %f N==%d\n", acts.mem[out + i], acts.mem[inp1 + i] , acts.mem[inp2 + i], N);
-//            }
         }
     }
     //dinp1 == grads_acts  dinp2 == grads_acts  dout  == grads_acts
@@ -856,9 +726,6 @@ public class GPT2 {
         for (int i = 0; i < N; i++) {
             grads_acts.mem[dinp1 + i] += grads_acts.mem[dout + i];
             grads_acts.mem[dinp2 + i] += grads_acts.mem[dout + i];
-//            if(i == 0 || i == 196607) {
-//                System.out.printf("%d residual_backward %f %d\n", i, grads_acts.mem[dout + i], N);
-//            }
         }
     }
                             //        acts        acts     acts     acts
