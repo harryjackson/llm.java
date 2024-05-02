@@ -17,7 +17,6 @@ source .venv/bin/activate
 python -m pip install -r requirements.txt
 python prepro_tinyshakespeare.py
 python train_gpt2.py
-make train_gpt2fp32cu
 ```
 
 ### JVM Requirements
