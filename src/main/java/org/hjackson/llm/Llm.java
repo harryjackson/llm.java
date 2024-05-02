@@ -47,7 +47,7 @@ public class Llm {
         final int genT = 64;
         // train
         long start, end;
-        for(int step = 0; step <= 40; step++) {
+        for(int step = 0; step <= 80; step++) {
             // once in a while estimate the validation loss
             if (step % 10 == 0) {
                 float val_loss = 0.0f;
