@@ -39,18 +39,14 @@ build/
 
 .idea/
 .venv/
-Llm.java
 data/
 dependency-reduced-pom.xml
-g
 gpt2.py
 gpt2_124M.bin
 gpt2_124M_bf16.bin
 gpt2_124M_debug_state.bin
 gpt2_tokenizer.bin
-t
 train_gpt2.c
-train_gpt2.py
 verify/__pycache__/
 
 read.py
