@@ -35,9 +35,7 @@ public class Tokenizer {
                             """, filename);
         }
         file = new RandomAccessFile(f, "r");
-
         // read in the header
-
         for (int i = 0; i < 256; i++) {
             //file has integers in little endian, jvm is bigendian
             header[i] = Integer.reverseBytes(file.readInt());
@@ -45,14 +43,12 @@ public class Tokenizer {
         log.info("header[0] == {}", header[0]);
         log.info("header[0] == {}", header[2]);
         assert (header[0] == 20240328);
-        assert (header[1] == 1);
+        assert (header[1] == 2);
         vocab_size = header[2];
         log.info("Vocab Size == {}", vocab_size);
         // read in all the tokens
         int length;
-
         token_table = new String[vocab_size];
-
         int pos = 1024;
         int vocabEnd =  vocab_size + 1024;
         int n = 0;
@@ -60,23 +56,16 @@ public class Tokenizer {
             file.seek(pos);
             byte l = file.readByte();
             length = l & 0xff;// java uses signed bytes, convert to unsigned
-            //log.info("length ==  {}", length);
             assert(length > 0);
             byte[] tmp = new byte[length];
             int t = file.read(tmp, 0, length);
             String tok = new String(tmp, StandardCharsets.UTF_8);
-            //log.debug("read {} bytes char == >{}<", length, tok);
-            //assert(length > 0); // every token should be at least one character
-//            char *token_bytes = (char *)malloc(length + 1);
-//            fread(token_bytes, sizeof(char), length, file);
-//            token_bytes[length] = '\0';  // Add null terminator for printing
-
+            //log.info(tok);
             token_table[n++] = tok;
             pos = pos + 1 + length;
         }
         file.close();
         init_ok = 1;
-
     }
 
     String tokenizer_decode(int token_id) {
@@ -87,10 +76,8 @@ public class Tokenizer {
             return token_table[token_id];
         } else {
             log.error("invalid token id {}!\n", token_id);
-            throw new IllegalStateException(STR."Something bad happened, bad token_id: \{token_id}");
+            throw new IllegalStateException("Something bad happened, bad token_id: " + token_id);
         }
     }
-
-
 }
 
