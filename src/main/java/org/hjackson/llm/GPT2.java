@@ -427,12 +427,6 @@ public class GPT2 {
                         grads.mem[dbias + o] = v;
                     }
                     for (int i = 0; i < C; i++) {
-//                        if(o == 2 && b == 2 && t == 2 && i == 2) {
-//                            System.out.printf("%d matmul_backward b==%d t==%d i==%d d==%f inp_bt==%f dwrow==%f dwrow_cell=%d\n",
-//                                    id, b, t, i, d, acts.mem[inp_bt + i], grads.mem[dwrow + i], dwrow + i);
-//                            grads.didChange(b + "-" + t + "-" + o + "-" + i);
-//                            grads_acts.didChange(b + "-" + t + "-" + o + "-" + i);
-//                        }
                         grads.mem[dwrow + i] += acts.mem[inp_bt + i] * d;
                     }
                 }
@@ -532,7 +526,6 @@ public class GPT2 {
         encoder_forward(acts.getEncoded(), loader, params.getWte(), params.getWpe(), B, T, C);// encoding goes into residual[0]
         for (int l = 0; l < L; l++) {
             long layerCount = gpt2_forward_counter_layer.incrementAndGet();
-            //residual = l == 0 ? acts.encoded : acts.residual3[] + (l-1) * B * T * C;
             if (l == 0) {
                 residual = acts.getEncoded();
             } else {
@@ -605,10 +598,6 @@ public class GPT2 {
             // if we don't have targets, we don't have a loss
             this.mean_loss = -1.0f;
         }
-//        for(int l = 0; l < L; l++) {
-//            int res = acts.getResidual3() + l * B * T * C;
-//            System.out.printf("l==%d f==%d b==%d residual == %1.7f @%d\n", l, gpt2_forward_counter_layer.get(), gpt2_backward_counter_layer.get(), acts.mem[res], res);
-//        }
     }
 
     public void gpt2_backward() {
@@ -634,8 +623,6 @@ public class GPT2 {
         // technically this is a small, inline backward() pass of calculating
         // total, final loss as the mean over all losses over all (B,T) positions in the batch
         float dloss_mean = 1.0f / (B * T);
-        //System.out.printf("B*T==%d\n", B*T);
-
         for (int i = 0; i < B * T; i++) {
             grads_acts.mem[grads_acts.getLosses() + i] = dloss_mean;
         }
@@ -645,31 +632,18 @@ public class GPT2 {
         int residual = acts.getResidual3() + (L - 1) * B * T * C;// last layer's residual
         int dresidual = grads_acts.getResidual3() + (L - 1) * B * T * C;// write to last layer's residual
 
-//        for (int l = L-1; l >= 0; l--) {
-//            dl_residual3 = grads_acts.getResidual3() + l * B * T * C;
-//            System.out.printf("bef b==%d f==%d dl_residual3 == %f\n",
-//                    gpt2_backward_counter_layer.get(), gpt2_forward_counter_layer.get(), grads_acts.mem[dl_residual3]);
-//        }
-
         layernorm_backward(dresidual, grads.getLnfw(), grads.getLnfb(), grads_acts.getLnf(), residual, params.getLnfw(), acts.getLnfMean(), acts.getLnfRstd(), B, T, C);
-//        for (int l = L-1; l >= 0; l--) {
-//            dl_residual3 = grads_acts.getResidual3() + l * B * T * C;
-//            System.out.printf("aft b==%d f==%d dl_residual3 == %f\n",
-//                    gpt2_backward_counter_layer.get(), gpt2_forward_counter_layer.get(), grads_acts.mem[dl_residual3]);
-//        }
         for (int l = L-1; l >= 0; l--) {
             long layerCount = gpt2_backward_counter_layer.incrementAndGet();
             float residualTest,  dresidualTest;
             if (l == 0) {
                 residual = acts.getEncoded();
                 dresidual = grads_acts.getEncoded();
-                residualTest = acts.mem[residual];
-                dresidualTest = grads_acts.mem[dresidual];
+                //residualTest = acts.mem[residual];dresidualTest = grads_acts.mem[dresidual];
             } else {
                 residual = acts.getResidual3() + (l - 1) * B * T * C;
                 dresidual = grads_acts.getResidual3() + (l - 1) * B * T * C;//previous residual -> l-1
-                residualTest = acts.mem[residual];
-                dresidualTest = grads_acts.mem[dresidual];
+                //residualTest = acts.mem[residual];dresidualTest = grads_acts.mem[dresidual];
             }
             //System.out.printf("b==%d f==%d residual == %f dlresidual == %f\n", layerCount, gpt2_forward_counter_layer.get(), residualTest, dresidualTest);
             // get the pointers of the weights for this layer
@@ -846,9 +820,7 @@ public class GPT2 {
     private void residual_forward(int out, int inp1, int inp2, int N) {
         for (int i = 0; i < N; i++) {
             acts.mem[out + i] = acts.mem[inp1 + i] + acts.mem[inp2 + i];
-//            if(i == 0 || i == 196607) {
-//                System.out.printf("residual_forward %f %f %f N==%d\n", acts.mem[out + i], acts.mem[inp1 + i] , acts.mem[inp2 + i], N);
-//            }
+//            if(i == 0 || i == 196607) { System.out.printf("residual_forward %f %f %f N==%d\n", acts.mem[out + i], acts.mem[inp1 + i] , acts.mem[inp2 + i], N);}
         }
     }
     //dinp1 == grads_acts  dinp2 == grads_acts  dout  == grads_acts
@@ -856,9 +828,7 @@ public class GPT2 {
         for (int i = 0; i < N; i++) {
             grads_acts.mem[dinp1 + i] += grads_acts.mem[dout + i];
             grads_acts.mem[dinp2 + i] += grads_acts.mem[dout + i];
-//            if(i == 0 || i == 196607) {
-//                System.out.printf("%d residual_backward %f %d\n", i, grads_acts.mem[dout + i], N);
-//            }
+//            if(i == 0 || i == 196607) {System.out.printf("%d residual_backward %f %d\n", i, grads_acts.mem[dout + i], N);}
         }
     }
                             //        acts        acts     acts     acts
