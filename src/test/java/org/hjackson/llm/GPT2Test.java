@@ -1,5 +1,4 @@
 package org.hjackson.llm;
-
 import java.io.File;
 import java.io.IOException;
 import java.io.RandomAccessFile;
@@ -9,15 +8,10 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.time.Duration;
 import java.time.Instant;
-
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 class GPT2Test {
-    private static final Logger log = LoggerFactory.getLogger(GPT2Test.class);
     float epsilon = 1e-2f;
     private int B;
     private int T;
@@ -26,6 +20,7 @@ class GPT2Test {
     private Arena memoryArena;
     private MemorySegment mappedFile;
     private ParameterTensors expected_grads;
+    private ByteBuffer byteBuffer;
     private int C;
     private int V;
     private int maxT;
@@ -33,7 +28,6 @@ class GPT2Test {
     private int[] state_header;
     private byte[] mem;
     private int cpos;
-    private byte[] fbuf = new byte[4];
     private int n;
     private int Vp;
 
@@ -58,23 +52,20 @@ class GPT2Test {
         mem = new byte[(int) state_file.length()];
         cpos = 0;
         state_file.read(mem);
+        byteBuffer = ByteBuffer.wrap(mem);
         state_file.close();
-
         for (int i = 0; i < 256; i++) {
-            fbuf[0] = mem[cpos];
-            fbuf[1] = mem[cpos + 1];
-            fbuf[2] = mem[cpos + 2];
-            fbuf[3] = mem[cpos + 3];
-            state_header[i] = ByteBuffer.wrap(fbuf).order(ByteOrder.nativeOrder()).getInt();
+            state_header[i] = byteBuffer.order(ByteOrder.nativeOrder()).getInt();
             cpos += 4;
+            Assertions.assertEquals(cpos, byteBuffer.position());
         }
         Assertions.assertEquals(20240327, state_header[0], "Bad magic state file");
         Assertions.assertEquals(2, state_header[1], "Bad version in state file");
         B = this.state_header[2]; // batch size, e.g. 4
         T = this.state_header[3];
-        log.info("[State]");
-        log.info("batch_size: {}", B);
-        log.info("seq_len: {}", T);
+        System.out.printf("[State]\n");
+        System.out.printf("batch_size: %d\n", B);
+        System.out.printf("seq_len: %d\n", T);
     }
 
     //@Test
@@ -84,71 +75,52 @@ class GPT2Test {
         int[] x = new int[B * T];
         int[] y = new int[B * T];
         for (int i = 0; i < x.length; i++) {
-            n = i;
-            fbuf[0] = mem[cpos];
-            fbuf[1] = mem[cpos + 1];
-            fbuf[2] = mem[cpos + 2];
-            fbuf[3] = mem[cpos + 3];
-            x[i] = ByteBuffer.wrap(fbuf).order(ByteOrder.LITTLE_ENDIAN).getInt();
+            x[i] = byteBuffer.order(ByteOrder.LITTLE_ENDIAN).getInt();
+            cpos +=4;
+            Assertions.assertEquals(cpos, byteBuffer.position());
             //System.out.printf("%d %d\n", n, x[i]);
-            cpos += 4;
         }
-        DataLoader loader = new DataLoader(x, B, T);
+        DataLoader loader = new DataLoader(x, B, T, "test", true);
         for (int i = 0; i < y.length; i++) {
-            n++;
-            fbuf[0] = mem[cpos];
-            fbuf[1] = mem[cpos + 1];
-            fbuf[2] = mem[cpos + 2];
-            fbuf[3] = mem[cpos + 3];
-            y[i] = ByteBuffer.wrap(fbuf).order(ByteOrder.LITTLE_ENDIAN).getInt();
-            cpos += 4;
+            y[i] = byteBuffer.order(ByteOrder.LITTLE_ENDIAN).getInt();
+            cpos +=4;
+            Assertions.assertEquals(cpos, byteBuffer.position());
+            //System.out.printf("%d x[i] == %s y[i] == %s\n", i, x[i], y[i]);
         }
         float expected_loss = 0.0f;
         final int num_params = model.getNumParams();
         int btv = B * T * V;
-        //ByteBuffer buf = ByteBuffer.
-        fbuf = new byte[4];
         float[] expected_logits = new float[btv];
-        log.info("reading expected_logits");
+        System.out.printf("reading expected_logits\n");
         for (int i = 0; i < btv; i++) {
-            n++;
-            fbuf[0] = mem[cpos];
-            fbuf[1] = mem[cpos + 1];
-            fbuf[2] = mem[cpos + 2];
-            fbuf[3] = mem[cpos + 3];
-            float f = ByteBuffer.wrap(fbuf).order(ByteOrder.LITTLE_ENDIAN).getFloat();
-            //System.out.printf("%d %1.17f\n", n, f);
+            float f = byteBuffer.order(ByteOrder.LITTLE_ENDIAN).getFloat();
             expected_logits[i] = f;
-            cpos += 4;
+            cpos +=4;
+            Assertions.assertEquals(cpos, byteBuffer.position());
         }
-        fbuf[0] = mem[cpos];
-        fbuf[1] = mem[cpos + 1];
-        fbuf[2] = mem[cpos + 2];
-        fbuf[3] = mem[cpos + 3];
-        cpos += 4;
-        n++;
-        expected_loss = ByteBuffer.wrap(fbuf).order(ByteOrder.LITTLE_ENDIAN).getFloat();
+
+        expected_loss = byteBuffer.order(ByteOrder.LITTLE_ENDIAN).getFloat();
+        cpos +=4;
+        Assertions.assertEquals(cpos, byteBuffer.position());
         float[] expected_grads_memory = new float[num_params];
-        log.info("reading expected_grads_memory");
+        System.out.printf("reading expected_grads_memory num_params == %d pos == %d rem == %d\n", num_params, cpos, byteBuffer.remaining());
         for (int i = 0; i < num_params; i++) {
-            n++;
-            fbuf[0] = mem[cpos];
-            fbuf[1] = mem[cpos + 1];
-            fbuf[2] = mem[cpos + 2];
-            fbuf[3] = mem[cpos + 3];
-            float f = ByteBuffer.wrap(fbuf).order(ByteOrder.LITTLE_ENDIAN).getFloat();
+            //System.out.printf("%d\n", i);
+            float f = byteBuffer.order(ByteOrder.LITTLE_ENDIAN).getFloat();
             //System.out.printf("%d %1.17f\n", n, f);
             expected_grads_memory[i] = f;
-            cpos += 4;
+            cpos +=4;
+            Assertions.assertEquals(cpos, byteBuffer.position());
         }
-        log.info("cpos == {}", cpos);
-        Assertions.assertEquals(549369860, cpos);
+        System.out.printf("cpos == %d\n", cpos);
+        Assertions.assertEquals(cpos, byteBuffer.position());
+        Assertions.assertEquals(549369860, byteBuffer.position());
     /* expected_logits[0]    == -43.43161774
        expected_loss         == 5.27000856
        expected_grads_memory == -0.00231974 */
-        log.info("expected_logits[0] == {} length == {}", expected_logits[0], expected_logits.length);
-        log.info("expected_loss            == {}", expected_loss);
-        log.info("expected_grads_memory[0] == {} length == {}", expected_grads_memory[0], expected_grads_memory.length);
+        System.out.printf("expected_logits[0] == %f length == %d\n", expected_logits[0], expected_logits.length);
+        System.out.printf("expected_loss            == %f\n", expected_loss);
+        System.out.printf("expected_grads_memory[0] == %f length == %d\n", expected_grads_memory[0], expected_grads_memory.length);
         // overall OK signal for the test
         boolean allok = true;
         // expected losses are as follows, from Python
@@ -172,7 +144,7 @@ class GPT2Test {
             model.gpt2_zero_grad();
             model.gpt2_backward();
             Instant end = Instant.now();
-            log.info("Duration: {}", Duration.between(end, start));
+            System.out.printf("Duration: %d seconds\n", Duration.between(end, start).getSeconds());
             ActivationTensors acts = model.acts;
             if (step == 0) {
                 // error checking at step 0 for reference activations/gradients
@@ -199,17 +171,17 @@ class GPT2Test {
                     }
                 }
                 if (!logits_ok) {
-                    log.error("Logits not ok, exiting");
+                    System.out.printf("Logits not ok, exiting\n");
                     System.exit(1);
                 }
-                log.info("OK (LOGITS)");
+                System.out.printf("OK (LOGITS)\n");
                 allok = allok && logits_ok;
                 // compare the achieved loss
                 if (Math.abs(model.mean_loss - expected_loss) >= epsilon) {
-                    log.info("LOSS MISMATCH: {} {}", model.mean_loss, expected_loss);
+                    System.out.printf("LOSS MISMATCH: %f %f\n", model.mean_loss, expected_loss);
                     allok = false;
                 } else {
-                    log.info("LOSS OK: {} {}", model.mean_loss, expected_loss);
+                    System.out.printf("LOSS OK: %f %f\n", model.mean_loss, expected_loss);
                 }
                 // finally check all the gradients
                 boolean[] gradoks = new boolean[16];
@@ -240,13 +212,13 @@ class GPT2Test {
         // compare
         for (int i = 0; i < 10; i++) {
             if (Math.abs(losses[i] - expected_losses[i]) >= 1e-2) {
-                log.info("LOSS MISMATCH AT STEP {}: {} {}", i, losses[i], expected_losses[i]);
+                System.out.printf("LOSS MISMATCH AT STEP %d %f: %f\n", i, losses[i], expected_losses[i]);
                 allok = false;
             } else {
-                log.info("loss ok at step {}: {} {}", i, losses[i], expected_losses[i]);
+                System.out.printf("loss ok at step %d %f: %f\n", i, losses[i], expected_losses[i]);
             }
         }
-        log.info("overall okay: {}", allok);
+        System.out.printf("overall okay: %d", allok);
     }
 
 
@@ -255,7 +227,7 @@ class GPT2Test {
         boolean ok = true;
         float maxdiff = 0.0f;
         float tol = 2e-2f;
-        log.info("{}", label);
+        System.out.printf("%s\n", label);
         for (int i = 0; i < n; i++) {
             float diff = Math.abs(model.grads.mem[start + i] - b[i]);
             ok = ok && (diff <= tol);
@@ -286,11 +258,5 @@ class GPT2Test {
         return ok;
     }
 
-    @Test
-    public void randomTest() {
-        float test = GPT2.random_f32(1337l);
-        System.out.printf("%1.17f", test);
-        Assertions.assertEquals(0.23031723499298096f, test);
-    }
 
 }

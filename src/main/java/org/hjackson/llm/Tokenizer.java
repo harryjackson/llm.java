@@ -3,11 +3,13 @@ import java.io.File;
 import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.nio.charset.StandardCharsets;
+import java.rmi.UnexpectedException;
 
 public class Tokenizer {
     private final int vocab_size;
     private final String[] token_table;
     public final int init_ok;
+    final int end_of_text;
     private RandomAccessFile file;
     private String fileName;
     private final int[] header = new int[256];
@@ -40,7 +42,11 @@ public class Tokenizer {
         assert (header[0] == 20240328);
         assert (header[1] == 2);
         vocab_size = header[2];
-        System.out.printf("Vocab Size == %d\n", vocab_size);
+        end_of_text = header[3];
+        if(end_of_text != 50256) {
+            throw new UnexpectedException("Something has changed");
+        }
+        System.out.printf("Vocab Size == %d end_of_text == %d\n", vocab_size, end_of_text);
         // read in all the tokens
         int length;
         token_table = new String[vocab_size];
@@ -58,6 +64,7 @@ public class Tokenizer {
             //System.out.printf(tok);
             token_table[n++] = tok;
             pos = pos + 1 + length;
+            //System.out.printf(">%s<\n", tok);
         }
         file.close();
         init_ok = 1;

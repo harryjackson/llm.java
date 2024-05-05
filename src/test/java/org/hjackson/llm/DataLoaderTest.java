@@ -19,7 +19,7 @@ public class DataLoaderTest {
       vals--;
     }
     //dataLoader = new DataLoader("data/tiny_shakespeare_train.bin", B, T);
-    dataLoader = new DataLoader(data, B, T);
+    dataLoader = new DataLoader(data, B, T, "test", true);
   }
 
   @Test

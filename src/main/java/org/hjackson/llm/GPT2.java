@@ -18,8 +18,10 @@ public class GPT2 {
     private final AtomicLong gpt2_forward_counter = new AtomicLong();
     public final AtomicLong gpt2_forward_counter_layer = new AtomicLong();
     private final AtomicLong gpt2_backward_counter_layer = new AtomicLong();
-    public static final int GPT2_EOT = 50256;
+    private final static AtomicLong input_counter = new AtomicLong();
+    private final static AtomicLong target_counter = new AtomicLong();
     private static float GELU_SCALING_FACTOR = (float) Math.sqrt(2.0f / Math.PI);
+
     public final GPT2Config config;
     // the weights (parameters) of the model, and their sizes
     public final ParameterTensors params;
@@ -46,6 +48,7 @@ public class GPT2 {
     private final MemorySegment data;
     private static final int headerSize = 256 * 4;// bytes
     private final IntBuffer header = IntBuffer.allocate(256);
+    private volatile boolean debugging = true;
 
     public GPT2(String checkpoint_path) throws Exception {
         try (FileChannel fileChannel = FileChannel.open(Paths.get(checkpoint_path),
@@ -71,6 +74,32 @@ public class GPT2 {
         }
         final float wte0 = params.mem[0];
         Assert.floatEquals(wte0, -0.11010301f);
+    }
+
+    void accessingInputs(String method, int b, int T, int t, int val) {
+        long cnt = input_counter.incrementAndGet();
+        if(cnt % 16 == 0) {
+            System.out.printf("%s inputCounter %d val == %d\n", method, cnt, val);
+        }
+//        if(cnt == 100) {
+//            System.out.printf("%s inputCounter %d val == %d %s\n", method, cnt, val, this);
+//        }
+    }
+
+    void accessingTargets(String method, int b, int T, int t, int val) {
+        long cnt = target_counter.incrementAndGet();
+        if(cnt % 16 == 0) {
+            System.out.printf("%s targetCounter == %d val == %d\n", method, cnt, val);
+        }
+//        if(cnt == 100) {
+//            System.out.printf("%s targetCounter == %d val == %d %s\n", method, cnt, val, this);
+//        }
+    }
+
+    public void stop() {
+        if(debugging) {
+            System.exit(1);
+        }
     }
 
     public void gpt2_build_from_checkpoint(final String checkpoint_path) throws Exception {
@@ -129,6 +158,7 @@ public class GPT2 {
             for (int t = 0; t < T; t++) {
                 int dout_bt = dout + b * T * C + t * C;//grads_acts
                 int ix = inputs.getInputs(b * T + t);
+                //accessingInputs("encoder_backward", b, T, t, ix);
                 int dwte_ix = dwte + ix * C;//grads
                 int dwpe_t = dwpe + t * C;//grads
                 for (int i = 0; i < C; i++) {
@@ -376,6 +406,7 @@ public class GPT2 {
                 int probs_bt = probs + b * T * Vp + t * Vp;
                 float dloss = grads_acts.mem[dlosses + b * T + t];
                 int ix = targets.getTargets(b * T + t);
+                //accessingTargets("crossentropy_softmax_backward", b, T, t, ix);
                 // note we only loop to V, leaving the padded dimensions
                 // of dlogits untouched, so gradient there stays at zero
                 for (int i = 0; i < V; i++) {
@@ -387,18 +418,6 @@ public class GPT2 {
         }
     }
 
-    private static long random_u32(long state) {
-        // xorshift rng: https://en.wikipedia.org/wiki/Xorshift#xorshift.2A
-        state ^= state >> 12;
-        state ^= state << 25;
-        state ^= state >> 27;
-        return (state * 0x2545F4914F6CDD1DL) >> 32;
-    }
-
-    public static float random_f32(long state) { // random float32 in [0,1)
-        return (random_u32(state) >> 8) / 16777216.0f;
-    }
-
     public int sample_mult(int probabilities, int n, float coin) {
         // sample index from probabilities (they must sum to 1!)
         // coin is a random number in [0, 1), usually from random_f32()
@@ -406,9 +425,11 @@ public class GPT2 {
         for (int i = 0; i < n; i++) {
             cdf += acts.mem[probabilities + i];
             if (coin < cdf) {
+                //System.out.printf("cdf == %f  probi == %f\n", cdf, acts.mem[probabilities + i]);
                 return i;
             }
         }
+        //System.out.printf("ROUNDING ERROR cdf == %f n - 1 == %d\n", cdf, n - 1);
         return n - 1; // in case of rounding errors
     }
 
@@ -455,6 +476,7 @@ public class GPT2 {
         if (gpt2_forward_counter.get() == 1L) {
             Assert.floatEquals(acts.mem[acts.getResidual3()], 0.0f);
         }
+        loader.cacheInputs();
         int residual;
         encoder_forward(acts.getEncoded(), loader, params.getWte(), params.getWpe(), B, T, C);// encoding goes into residual[0]
         for (int l = 0; l < L; l++) {
@@ -517,6 +539,7 @@ public class GPT2 {
         softmax_forward(acts.getProbs(), acts.getLogits(), B, T, V, Vp);
         // also forward the cross-entropy loss function if we have the targets
         if (loader.targetsPresent()) {
+            //System.out.printf("targets present\n");
             crossentropy_forward(acts.getLosses(), acts.getProbs(), loader, B, T, Vp);
             // for convenience also evaluate the mean loss
             float mean_loss = 0.0f;
@@ -529,6 +552,8 @@ public class GPT2 {
             //System.out.printf("f=={} mean_loss == {}", gpt2_forward_counter_layer.get(), mean_loss);
             Assert.nonNan(this.mean_loss);
         } else {
+            //System.out.printf("targets not present\n");
+
             // if we don't have targets, we don't have a loss
             this.mean_loss = -1.0f;
         }
@@ -562,6 +587,7 @@ public class GPT2 {
         for (int i = 0; i < B * T; i++) {
             grads_acts.mem[grads_acts.getLosses() + i] = dloss_mean;
         }
+        loader.setWorkOnCache(true);
         int dl_residual3 = -1;
         crossentropy_softmax_backward(grads_acts.getLogits(), grads_acts.getLosses(), acts.getProbs(), loader, B, T, V, Vp);
         matmul_backward(grads_acts.getLnf(), grads.getWte(), Integer.MIN_VALUE, grads_acts.getLogits(), acts.getLnf(), params.wte, B, T, C, Vp, 0);
@@ -647,6 +673,7 @@ public class GPT2 {
             layernorm_backward(dresidual, dl_ln1w, dl_ln1b, dl_ln1, residual, l_ln1w, l_ln1_mean, l_ln1_rstd, B, T, C);
         }
         encoder_backward(grads.wte, grads.getWpe(), grads_acts.getEncoded(), loader, B, T, C);
+        loader.setWorkOnCache(false);
     }
     //                                  acts    ,     acts
     private void crossentropy_forward(int losses, int probs, DataLoader targets, int B, int T, int Vp) {
@@ -657,6 +684,7 @@ public class GPT2 {
             for (int t = 0; t < T; t++) {
                 int probs_bt = probs + b * T * Vp + t * Vp;//acts
                 int ix = targets.getTargets(b * T + t);
+                //accessingTargets("crossentropy_forward", b, T, t, ix);
                 acts.mem[losses + b * T + t] = (float) -Math.log(acts.mem[probs_bt + ix]);
             }
         }
@@ -807,7 +835,10 @@ public class GPT2 {
                         int wrow = weight + o * C;
                         for (int i = 0; i < C; i++) {
                             val += acts.mem[inp_bt + i] * params.mem[wrow + i];
+                            //System.out.printf("%d %d %d val == %1.17f %1.17f %1.17f\n", b, t, i, val, acts.mem[inp_bt + i], params.mem[wrow + i]);
+
                         }
+                        //stop();
                         acts.mem[out_bt + o] = val;
                     }
                 });
@@ -828,15 +859,22 @@ public class GPT2 {
                 float m = 0.0f;
                 for (int i = 0; i < C; i++) {
                     m += acts.mem[x + i];
+                    //System.out.printf("%d %d %d %1.17f %1.17f\n", b, t, i, acts.mem[x + i], m);
                 }
                 m = m / C;
+                //System.out.printf("%d %d m == %1.17f\n", b, t, m);
                 // calculate the variance (without any bias correction)
                 float v = 0.0f;
                 for (int i = 0; i < C; i++) {
-                    float xshift = acts.mem[x + i] - m;
+                    float xshift = (acts.mem[x + i] - m);
                     v += xshift * xshift;
+                    //System.out.printf("%d %d %d %1.17f %1.17f %1.17f %1.17f\n", b, t, i, acts.mem[x + i], m, xshift, v);
                 }
                 v = v / C;
+
+                //System.out.printf("%d %d m2 == %1.17f\n", b, t, m);
+                //System.out.printf("%d %d m == %1.17f\n", b, t, v);
+
                 // calculate the rstd (reciprocal standard deviation)
                 float s = (float) (1.0f / Math.sqrt(v + eps));
                 // seek to the output position in out[b,t,:]
@@ -845,11 +883,16 @@ public class GPT2 {
                     float n = (s * (acts.mem[x + i] - m)); // normalize
                     float o = n * params.mem[weight + i] + params.mem[bias + i]; // scale and shift
                     acts.mem[out_bt + i] = o; // write
+                    //System.out.printf("%d %d %d %1.17f %1.17f %1.17f %1.17f %1.17f\n", b, t, i, s, n, o, acts.mem[x + i], m);
+
                 }
+                //stop();
                 // cache the mean and rstd for the backward pass later
                 acts.mem[mean + (b * T + t)] = m;
                 acts.mem[rstd + (b * T + t)] = s;
+                //System.out.printf("%d %d %1.17f %1.17f\n", b, t, m, s);
             }
+
         }
     }
     //                          out == acts         wte == params     wpe == params
@@ -864,6 +907,11 @@ public class GPT2 {
                 int out_bt = out + b * T * C + t * C;//acts
                 // get the index of the token at inp[b, t]
                 int ix = inp.getInputs(b * T + t);
+                //accessingInputs("encoder_forward", b, T, t, ix);
+                //System.out.printf("%d\n", ix);
+//                if(ix == 464) {
+//                    throw new IllegalStateException("WTF");
+//                }
                 // seek to the position in wte corresponding to the token
                 int wte_ix = wte + ix * C;//params
                 // seek to the position in wpe corresponding to the position
@@ -871,9 +919,11 @@ public class GPT2 {
                 // add the two vectors and store the result in out[b,t,:]
                 for (int i = 0; i < C; i++) {
                     acts.mem[out_bt + i] = params.mem[wte_ix + i] + params.mem[wpe_t + i];
+                    //System.out.printf("%d %d %d %1.17f %1.17f %1.17f\n", b, t, i, acts.mem[out_bt + i], params.mem[wte_ix + i], params.mem[wpe_t + i]);
                 }
             }
         }
+        //stop();
     }
     public int getNumParams() {
         return num_parameters;
